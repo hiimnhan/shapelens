@@ -1,6 +1,6 @@
 [project]
 name = "shapelens"
-version = "0.1.1"
+version = "0.2.0"
 description = "See tensor shapes as boxes: trace PyTorch ops and draw them in Jupyter notebooks."
 readme = "README.md"
 license = "MIT"
@@ -15,20 +15,14 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Debuggers",
 ]
-dependencies = [
-    "torch>=2.0.1",
-]
+dependencies = ["torch>=2.0.1"]
 
 [project.urls]
 Homepage = "https://github.com/hiimnhan/shapelens"
 Repository = "https://github.com/hiimnhan/shapelens"
 
 [dependency-groups]
-dev = [
-    "jupyter>=1.1.1",
-    "nbconvert>=7.17.2",
-    "numpy>=2.2.6",
-]
+dev = ["jupyter>=1.1.1", "nbconvert>=7.17.2", "numpy>=2.2.6"]
 
 [build-system]
 requires = ["hatchling"]
