@@ -2925,7 +2925,7 @@ wheels = [
 
 [[package]]
 name = "shapelens"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
