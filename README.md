@@ -2,11 +2,9 @@
 
 Visualise Pytorch tensor dimensions at ease in Jupyter notebook.
 
-![ViT patchify traced with shapelens: each source line, its input tensors, the op, and the output tensor drawn as boxes](https://raw.githubusercontent.com/hiimnhan/shapelens/main/docs/vit-patchify.png)
+![Visualise Pytorch tensor dimensions at ease in Jupyter notebook.](https://raw.githubusercontent.com/hiimnhan/shapelens/main/docs/vit-patchify.png)
 
-*A ViT patch embedding, traced: image `(B, C, H, W)` becomes tokens `(B, N+1, D)`.*
-
-Built for Jupyter notebooks. In a cell:
+*Example*:
 
 ```python
 import shapelens as sl
@@ -38,27 +36,16 @@ with sl.trace() as t:
     q = x @ Wq
     k = x @ Wk
     v = x @ Wv
-    scores = q @ k.transpose(-2, -1) / D ** 0.5   # every token against every token: (B, T, T)
+    scores = q @ k.transpose(-2, -1) / D ** 0.5  
     attn = scores.softmax(dim=-1)
-    out = attn @ v                                # weighted sum of values: (B, T, D)
-t   # in a notebook this renders boxes; print(t) gives the text below
+    out = attn @ v                               
+t 
 ```
 
 ![Single-head self-attention traced with shapelens: x is projected to q, k, v; scores are T by T; the output returns to T by D](https://raw.githubusercontent.com/hiimnhan/shapelens/main/docs/self-attention.png)
 
-```
-q = x @ Wq
-    mm: x[B 2, T 5, D 8], Wq[D 8, D 8] -> q[B 2, T 5, D 8]
-scores = q @ k.transpose(-2, -1) / D ** 0.5   # every token against every token: (B, T, T)
-    transpose, bmm, div: k[B 2, T 5, D 8], q[B 2, T 5, D 8] -> scores[B 2, T 5, T 5]
-attn = scores.softmax(dim=-1)
-    _softmax: scores[B 2, T 5, T 5] -> attn[B 2, T 5, T 5]
-out = attn @ v                                # weighted sum of values: (B, T, D)
-    bmm: attn[B 2, T 5, T 5], v[B 2, T 5, D 8] -> out[B 2, T 5, D 8]
-```
-
-(The `k` and `v` projections are traced the same way as `q` and omitted here.) Note how `T 5` becomes
-`T 5 × T 5` in `scores`, then collapses back to `D 8` in `out`.
+<!-- (The `k` and `v` projections are traced the same way as `q` and omitted here.) Note how `T 5` becomes
+`T 5 × T 5` in `scores`, then collapses back to `D 8` in `out`. -->
 
 ## Dimension labels
 
@@ -78,9 +65,7 @@ with sl.trace(Dh="D // H") as t:          # "Dh" names whatever `D // H` is in t
 ![The head dimension labelled automatically as "D // H = 8", then renamed "Dh" with sl.trace(Dh="D // H")](https://raw.githubusercontent.com/hiimnhan/shapelens/main/docs/dimension-labels.png)
 
 Copy **any** expression straight from your code. Attributes, subscripts, `/` and function calls all work, and
-so does a statement split over several lines. In a module the sizes live on `self`, so there are no `D` or `H`
-variables to pick up; name the expressions instead (others that work: `"x.shape[-1] // heads"`, `"D / H"`,
-`"len(tokens)"`):
+so does a statement split over several lines:
 
 ```python
 class MultiHeadScores(torch.nn.Module):
@@ -117,14 +102,14 @@ earlier notebook cell), and a name you pass beats both.
 the traced code (usually a typo; spacing doesn't matter), or it was found but *could not be evaluated*, with the
 reason (for example it evaluated to a tensor, not an int).
 
-**Limits**
+<!-- **Limits**
 - Labels go by size, so equal sizes show every name (`H/W`), and any other axis of the same size gets the same
   label.
 - Automatic expression labels (the `D // H = 8` you get without passing anything) cover only integer arithmetic
   (`+ - * // % **`) on plain variables, evaluated by a small whitelist-only evaluator. Your code is never executed
   for them.
 - An expression **you name** is different: it is evaluated with Python's `eval` in the scope of that line, like
-  a debugger watch expression. Use pure expressions (no function calls with side effects, such as `next(it)`).
+  a debugger watch expression. Use pure expressions (no function calls with side effects, such as `next(it)`). -->
 
 ## Tip
 
