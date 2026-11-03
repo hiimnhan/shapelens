@@ -2942,7 +2942,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "torch", specifier = ">=2.14.1" }]
+requires-dist = [{ name = "torch", specifier = ">=2.0.1" }]
 
 [package.metadata.requires-dev]
 dev = [

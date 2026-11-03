@@ -36,13 +36,15 @@ Use `device="meta"` tensors to see shapes without any compute or memory.
 
 ## Limits
 
-PyTorch only. The tracer keeps references to op outputs while tracing, so prefer `meta`
+PyTorch only. Smoke-tested on torch 2.0.1 to 2.8.0 and 2.14.1 (Python 3.10, macOS arm64); older
+versions are untested. The tracer keeps references to op outputs while tracing, so prefer `meta`
 tensors for big models. Only errors raised inside a torch op are highlighted.
 
 ## Development
 
 ```
 uv sync              # installs the project plus jupyter/nbconvert (dev group)
+uv run python test_shapelens.py   # smoke test (no pytest needed)
 uv run jupyter lab   # open demo.ipynb: attention, ViT patchify, and a shape-bug cell
 uv build             # wheel + sdist into dist/
 ```

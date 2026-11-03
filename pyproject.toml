@@ -5,6 +5,7 @@ description = "See tensor shapes as boxes: trace PyTorch ops and draw them in Ju
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
+authors = [{ name = "nhanncv" }]
 requires-python = ">=3.10"
 keywords = ["pytorch", "tensor", "shape", "visualization", "debugging"]
 classifiers = [
@@ -15,7 +16,7 @@ classifiers = [
     "Topic :: Software Development :: Debuggers",
 ]
 dependencies = [
-    "torch>=2.14.1",
+    "torch>=2.0.1",
 ]
 
 [project.urls]
