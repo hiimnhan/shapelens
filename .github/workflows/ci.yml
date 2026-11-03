@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: py${{ matrix.python }} torch ${{ matrix.torch }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # oldest supported torch (has no Python 3.12 wheels), newest tested, other OS / Python
+          - { os: ubuntu-latest, python: "3.10", torch: "2.0.1" }
+          - { os: ubuntu-latest, python: "3.10", torch: "2.8.0" }
+          - { os: ubuntu-latest, python: "3.12", torch: "2.8.0" }
+          - { os: macos-latest, python: "3.10", torch: "2.8.0" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Create venv
+        run: uv venv --python ${{ matrix.python }}
+      - name: Install torch (CPU build on Linux, avoids the multi-GB CUDA download)
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            uv pip install --index-url https://download.pytorch.org/whl/cpu "torch==${{ matrix.torch }}"
+          else
+            uv pip install "torch==${{ matrix.torch }}"
+          fi
+      - name: Install shapelens
+        run: uv pip install --no-deps .  # torch is already pinned above
+      - name: Smoke test
+        # -I = isolated mode: import the installed package, not shapelens.py from the checkout
+        run: uv run --no-project python -I test_shapelens.py
+
+  build:
+    name: Build and check package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+      - run: uvx twine check dist/*
