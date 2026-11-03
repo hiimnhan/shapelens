@@ -11,7 +11,7 @@ Built for Jupyter notebooks. In a cell:
 ```python
 import shapelens as sl
 
-with sl.Trace() as t:
+with sl.trace() as t:
     out = attention(x, Wq, Wk, Wv, H=4)
 t   # last expression in the cell renders the boxes inline
 ```
@@ -25,7 +25,7 @@ t   # last expression in the cell renders the boxes inline
 ## Dimension labels
 
 Any UPPERCASE `int` variable in your code (`B = 2`, `D = 32`) labels every dim of that size.
-Add more by hand: `sl.Trace(S=197)`. Labels go by size, so equal sizes show every name (`H/W`).
+Add more by hand: `sl.trace(S=197)`. Labels go by size, so equal sizes show every name (`H/W`).
 
 ## Tip
 

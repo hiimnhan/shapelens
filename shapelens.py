@@ -1,7 +1,7 @@
 """shapelens: trace tensor shapes in a code block, render in Jupyter.
 
     import shapelens as sl
-    with sl.Trace() as t:
+    with sl.trace() as t:
         out = attention(x)
     t            # last expression in a cell -> HTML table
 """
@@ -28,9 +28,9 @@ def _user_frame(f):
     return f
 
 
-class Trace(TorchDispatchMode):
+class trace(TorchDispatchMode):
     def __init__(self, **dims):
-        """dims: extra labels, e.g. Trace(N=196). UPPERCASE int variables in your code are picked up automatically."""
+        """dims: extra labels, e.g. trace(N=196). UPPERCASE int variables in your code are picked up automatically."""
         super().__init__()
         self.dims = {}  # size -> [labels]; ponytail: label by value, so equal sizes share names (H/W)
         for k, v in dims.items():

@@ -8,7 +8,7 @@ def test_trace_names_shapes_and_labels():
     B, T, D = 2, 5, 32
     x = torch.randn(B, T, D, device="meta")
     W = torch.randn(D, D, device="meta")
-    with sl.Trace(S=197) as t:
+    with sl.trace(S=197) as t:
         q = (x @ W).view(B, T, 4, D // 4).transpose(1, 2)
         s = q @ q.transpose(-2, -1)
     rows = t.lines()
@@ -23,7 +23,7 @@ def test_trace_names_shapes_and_labels():
 def test_failing_op_is_recorded_and_error_propagates():
     x = torch.randn(2, 5, 32, device="meta")
     W_bad = torch.randn(64, 16, device="meta")
-    t = sl.Trace()
+    t = sl.trace()
     try:
         with t:
             a = x + 1
