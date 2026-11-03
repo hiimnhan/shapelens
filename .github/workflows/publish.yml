@@ -11,6 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Release tag must match the package version
+        # PyPI never accepts the same version twice, so catch a forgotten version bump early
+        run: |
+          v=$(grep -m1 '^version' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "$v" ]; then
+            echo "::error::Release tag '$GITHUB_REF_NAME' does not match pyproject.toml version '$v'. Bump the version, commit, then re-create the release."
+            exit 1
+          fi
       - uses: astral-sh/setup-uv@v5
       - run: uv build
       - run: uvx twine check dist/*

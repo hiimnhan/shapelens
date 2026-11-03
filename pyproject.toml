@@ -1,6 +1,6 @@
 [project]
 name = "shapelens"
-version = "0.1.0"
+version = "0.1.1"
 description = "See tensor shapes as boxes: trace PyTorch ops and draw them in Jupyter notebooks."
 readme = "README.md"
 license = "MIT"
