@@ -5,10 +5,13 @@
         out = attention(x)
     t            # last expression in a cell -> HTML table
 """
+import ast
 import html
 import linecache
 import math
+import operator
 import sys
+import warnings
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
@@ -16,6 +19,27 @@ from torch.utils._python_dispatch import TorchDispatchMode
 _SKIP = ("torch/", "contextlib.py", "/IPython/", "/ipykernel/")
 _NOISE = {"view", "_unsafe_view", "expand", "clone", "reshape", "_reshape_alias", "detach", "alias"}
 _PALETTE =["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948", "#b07aa1", "#ff9da7", "#9c755f"]
+
+
+_ARITH = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+          ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod, ast.Pow: operator.pow}
+
+
+def _arith(node, env):
+    """Evaluate pure integer arithmetic (int constants, int variables from env, + - * // % ** and unary minus).
+    No eval(): anything else raises ValueError, so your code is never executed or given side effects."""
+    if isinstance(node, ast.Constant) and type(node.value) is int:
+        return node.value
+    if isinstance(node, ast.Name) and type(env.get(node.id)) is int:
+        return env[node.id]
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return -_arith(node.operand, env)
+    if isinstance(node, ast.BinOp) and type(node.op) in _ARITH:
+        a, b = _arith(node.left, env), _arith(node.right, env)
+        if isinstance(node.op, ast.Pow) and not (0 <= b <= 16 and abs(a) <= 10**6):
+            raise ValueError("pow too large")
+        return _ARITH[type(node.op)](a, b)
+    raise ValueError("not integer arithmetic")
 
 
 def _side(d):
@@ -30,26 +54,65 @@ def _user_frame(f):
 
 class trace(TorchDispatchMode):
     def __init__(self, **dims):
-        """dims: extra labels, e.g. trace(N=196). UPPERCASE int variables in your code are picked up automatically."""
+        """Dimension labels. UPPERCASE int variables (B, T, D) and integer arithmetic in your code (D // H) are
+        named automatically. Names you pass win: trace(S=197) names size 197; trace(Dh="D // H") names whatever
+        the expression `D // H` evaluates to in your code."""
         super().__init__()
-        self.dims = {}  # size -> [labels]; ponytail: label by value, so equal sizes share names (H/W)
-        for k, v in dims.items():
-            self._label(v, k)
+        self.dims = {}      # size -> [variable names]; ponytail: labels go by size, so equal sizes share names (H/W)
+        self.explicit = {}  # size -> [names you passed in]
+        self.exprs = {}     # size -> [source expressions like "D // H"]: fallback when nothing else names the size
+        self._named = {}    # normalized expression text -> the name you gave it
+        self._hit = set()   # named expressions that were found in the traced code
+        self._ast = {}      # (file, line, source) -> [(BinOp node, text)]
+        for name, v in dims.items():
+            if isinstance(v, str):
+                self._named[ast.unparse(ast.parse(v, mode="eval").body)] = name
+            else:
+                self._add(self.explicit, v, name)
         self.rows = []  # (lineno, code, op, [(id, shape)], [(id, shape)])
         self.names = {}  # id(tensor) -> variable name, last seen
         self._keep = []  # keep outputs alive so ids stay unique
 
-    def _label(self, size, name):
-        labels = self.dims.setdefault(size, [])
-        if name not in labels:
-            labels.append(name)
+    @staticmethod
+    def _add(table, size, name):
+        names = table.setdefault(size, [])
+        if name not in names:
+            names.append(name)
 
     def _scan(self, frame):
         for k, v in frame.f_locals.items():
             if isinstance(v, torch.Tensor) and not k.startswith("_"):
                 self.names[id(v)] = k
-            elif type(v) is int and v > 1 and k.isupper():  # B, T, D, H2 ... but not loop vars like i
-                self._label(v, k)
+            elif type(v) is int and v > 1 and k.isupper():  # B, T, D ... not loop vars like i
+                self._add(self.dims, v, k)
+
+    def _candidates(self, fr, code):
+        """Integer-looking expressions on this source line, e.g. `D // H` in `.view(B, T, H, D // H)`."""
+        key = (fr.f_code.co_filename, fr.f_lineno, code)
+        if key not in self._ast:
+            try:
+                tree = ast.parse(code + " pass" if code.endswith(":") else code)
+                self._ast[key] = [(n, ast.unparse(n)) for n in ast.walk(tree) if isinstance(n, ast.BinOp)
+                                  and any(isinstance(m, ast.Name) for m in ast.walk(n))]
+            except SyntaxError:  # e.g. a line from the middle of a multi-line statement
+                self._ast[key] = []
+        return self._ast[key]
+
+    def _scan_exprs(self, fr, code):
+        cands = [(n, t) for n, t in self._candidates(fr, code) if len(t) <= 16 or t in self._named]
+        if not cands:
+            return
+        env = {**fr.f_globals, **fr.f_locals}  # evaluated in the scope where that line really runs
+        for node, text in cands:
+            try:
+                v = _arith(node, env)
+            except (ValueError, ArithmeticError):
+                continue
+            if text in self._named:
+                self._hit.add(text)
+                self._add(self.explicit, v, self._named[text])
+            elif v > 1:
+                self._add(self.exprs, v, text)
 
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         try:
@@ -66,6 +129,7 @@ class trace(TorchDispatchMode):
             self._scan(fr)
             code = linecache.getline(fr.f_code.co_filename, fr.f_lineno).strip()
             line = fr.f_lineno
+            self._scan_exprs(fr, code)
         else:
             code, line = "", 0
         outs = [o for o in (out if isinstance(out, (tuple, list)) else [out]) if isinstance(o, torch.Tensor)]
@@ -80,6 +144,10 @@ class trace(TorchDispatchMode):
         if fr is not None:
             self._scan(fr)
         r = super().__exit__(*a)
+        for text, name in self._named.items():
+            if text not in self._hit:
+                warnings.warn(f"shapelens: `{text}` was not found in the traced code, so the label '{name}' "
+                              "was not applied", stacklevel=2)
         if a[0] is not None:  # block raised: the cell's trailing `t` never runs, so show the trace now
             try:
                 from IPython.display import display
@@ -89,7 +157,14 @@ class trace(TorchDispatchMode):
         return r
 
     def _lab(self, d):
-        return f'{"/".join(self.dims.get(d, []))} {d}'.strip()
+        names = self.explicit.get(d)  # priority: names you passed, then the expression in your code, then variables
+        if names:
+            return f'{"/".join(names)} {d}'
+        if d in self.exprs:  # "D // H = 8": evaluated where that line ran, so it beats a stale global like D = 8
+            return f'{self.exprs[d][0]} = {d}'
+        if d in self.dims:
+            return f'{"/".join(self.dims[d])} {d}'
+        return str(d)
 
     def text(self):
         fmt = lambda i, s: f'{self.names.get(i, "?")}[{", ".join(self._lab(d) for d in s)}]'
@@ -113,9 +188,11 @@ class trace(TorchDispatchMode):
         D = min(40, _side(dep) // 2) if dep else 0
         lead = shape[:-3]
         g = min(math.prod(lead), 3) - 1 if lead else 0  # ghost copies behind
-        rl, dl = (lab(shape[-2]) if n >= 2 else ""), (lab(dep) if dep else "")
+        row_d = shape[-2] if n >= 2 else (1 if n == 1 else None)  # a 1-D tensor is drawn as one row: show its "1" side too
+        rl, dl = (lab(row_d) if row_d is not None else ""), (lab(dep) if dep else "")
         lt = " × ".join(lab(d) for d in lead)
-        x0, y0 = 7 * len(rl) + 8, D + (16 if lead else 4)
+        cl = lab(shape[-1]) if n else ""  # the bottom label is centred: keep long ones ("D // H = 8") inside the SVG
+        x0, y0 = max(7 * len(rl) + 8, int(3.5 * len(cl) - W / 2) + 4), D + (16 if lead else 4)
 
         def cube(ox, oy, op):
             x, y = x0 + ox, y0 + oy
@@ -134,13 +211,14 @@ class trace(TorchDispatchMode):
         body = "".join(cube(8 * i, 8 * i, 0.5) for i in range(g, 0, -1)) + cube(0, 0, 1)
         if n:
             body += text(x0 + W / 2, y0 + Hh + 8 * g + 13, shape[-1], "middle", lab(shape[-1]))
-        if n >= 2:
-            body += text(x0 - 4, y0 + Hh / 2 + 4, shape[-2], "end", rl)
+        if row_d is not None:
+            body += text(x0 - 4, y0 + Hh / 2 + 4, row_d, "end", rl)
         if dep:
             body += text(x0 + W + D + 5, y0 - D / 2 + 4, dep, "start", dl)
         if lead:
             body += f'<text x="{x0}" y="11" font-size="11" font-family="monospace" fill="currentColor">{lt}</text>'
-        wd = max(x0 + W + D + 8 * g + (7 * len(dl) + 8 if dl else 6), x0 + 7 * len(lt) if lead else 0)
+        wd = max(x0 + W + D + 8 * g + (7 * len(dl) + 8 if dl else 6), x0 + 7 * len(lt) if lead else 0,
+                 x0 + W / 2 + 3.5 * len(cl) + 4)
         ht = y0 + Hh + 8 * g + 18
         name = html.escape(self.names.get(tid, ""))
         return (f'<div style="text-align:center;margin:0 6px"><svg width="{int(wd)}" height="{int(ht)}">{body}</svg>'
@@ -184,7 +262,8 @@ class trace(TorchDispatchMode):
                 f"<div style='width:240px;flex:none;font:12px monospace;white-space:pre-wrap'>{html.escape(code)}"
                 f"<div style='opacity:.6'>{html.escape(op)}</div></div>"
                 + "".join(self._box(i, s, colors) for i, s in ins)
-                + f"<div style='font-size:24px;padding:0 6px;{'color:#e15759' if err else ''}'>{'✗' if err else '→'}</div>"
+                + (f"<div style='font-size:24px;padding:0 6px;{'color:#e15759' if err else ''}'>{'✗' if err else '→'}</div>"
+                   if ins or err else "")  # creation ops (ones, randn, ...) have no inputs: no empty gap, no arrow
                 + res
                 + "</div>"
             )
