@@ -1,7 +1,7 @@
-"""tensorviz: trace tensor shapes in a code block, render in Jupyter.
+"""shapelens: trace tensor shapes in a code block, render in Jupyter.
 
-    import tensorviz as tv
-    with tv.Trace() as t:
+    import shapelens as sl
+    with sl.Trace() as t:
         out = attention(x)
     t            # last expression in a cell -> HTML table
 """

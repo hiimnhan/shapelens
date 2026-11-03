@@ -1,4 +1,4 @@
-# tensorviz
+# shapelens
 
 See tensor shapes as boxes. Wrap a block of PyTorch code and get, per source line, the input
 tensors, the op, and the output tensor drawn as rectangles, with your variable names and
@@ -7,9 +7,9 @@ dimension labels (`B`, `T`, `D`, ...).
 Built for Jupyter notebooks. In a cell:
 
 ```python
-import tensorviz as tv
+import shapelens as sl
 
-with tv.Trace() as t:
+with sl.Trace() as t:
     out = attention(x, Wq, Wk, Wv, H=4)
 t   # last expression in the cell renders the boxes inline
 ```
@@ -28,7 +28,7 @@ t   # last expression in the cell renders the boxes inline
 ## Dimension labels
 
 Any UPPERCASE `int` variable in your code (`B = 2`, `D = 32`) labels every dim of that size.
-Add more by hand: `tv.Trace(S=197)`. Labels go by size, so equal sizes show every name (`H/W`).
+Add more by hand: `sl.Trace(S=197)`. Labels go by size, so equal sizes show every name (`H/W`).
 
 ## Tip
 

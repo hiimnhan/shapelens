@@ -1,5 +1,5 @@
 [project]
-name = "tensorviz"
+name = "shapelens"
 version = "0.1.0"
 description = "See tensor shapes as boxes: trace PyTorch ops and draw them in Jupyter notebooks."
 readme = "README.md"
@@ -19,8 +19,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/hiimnhan/tensorviz"
-Repository = "https://github.com/hiimnhan/tensorviz"
+Homepage = "https://github.com/hiimnhan/shapelens"
+Repository = "https://github.com/hiimnhan/shapelens"
 
 [dependency-groups]
 dev = [
@@ -33,9 +33,9 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# single-file module: tensorviz.py at the project root
+# single-file module: shapelens.py at the project root
 [tool.hatch.build.targets.wheel]
-include = ["tensorviz.py"]
+include = ["shapelens.py"]
 
 [tool.hatch.build.targets.sdist]
-include = ["tensorviz.py", "README.md", "LICENSE", "pyproject.toml"]
+include = ["shapelens.py", "README.md", "LICENSE", "pyproject.toml"]
