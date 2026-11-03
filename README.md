@@ -4,6 +4,10 @@ See tensor shapes as boxes. Wrap a block of PyTorch code and get, per source lin
 tensors, the op, and the output tensor drawn as rectangles, with your variable names and
 dimension labels (`B`, `T`, `D`, ...).
 
+![ViT patchify traced with shapelens: each source line, its input tensors, the op, and the output tensor drawn as boxes](https://raw.githubusercontent.com/hiimnhan/shapelens/main/docs/vit-patchify.png)
+
+*A ViT patch embedding, traced: image `(B, C, H, W)` becomes tokens `(B, N+1, D)`.*
+
 Built for Jupyter notebooks. In a cell:
 
 ```python
@@ -17,6 +21,8 @@ t   # last expression in the cell renders the boxes inline
 - **Shape errors:** if an op fails inside the block, the trace is displayed immediately with the
   failing line highlighted in red, then the original error still propagates.
 - `print(t)` gives a plain-text version of the same trace.
+
+![A failing matmul highlighted in red: A has last dim 32 but B has first dim 64](https://raw.githubusercontent.com/hiimnhan/shapelens/main/docs/shape-error.png)
 
 ## Drawing rules
 
