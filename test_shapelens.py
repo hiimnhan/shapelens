@@ -80,6 +80,50 @@ def test_unmatched_expression_warns():
     assert any("D // H" in str(m.message) for m in w), [str(m.message) for m in w]
 
 
+class _Cfg:
+    d_model, n_heads = 32, 4
+
+
+def test_name_an_attribute_expression():
+    cfg = _Cfg()
+    x = torch.randn(2, 5, 32, device="meta")
+    with sl.trace(Dh="cfg.d_model // cfg.n_heads") as t:  # copied straight from the line below
+        q = x.view(2, 5, cfg.n_heads, cfg.d_model // cfg.n_heads)
+    assert t._lab(8) == "Dh 8", t._lab(8)
+
+
+def test_name_shape_and_true_division_expressions():
+    D, H = 32, 4
+    x = torch.randn(2, 5, 32, device="meta")
+    with sl.trace(Dh="x.shape[-1] // 4", Hd="D / H") as t:  # a subscript, and `/` which gives a float
+        q = x.view(2, 5, 4, x.shape[-1] // 4)
+        r = x.view(2, 5, H, int(D / H))
+    assert t._lab(8) == "Dh/Hd 8", t._lab(8)
+
+
+def test_expression_in_a_multi_line_statement():
+    D, H = 32, 4
+    x = torch.randn(2, 5, 32, device="meta")
+    with sl.trace(Dh="D // H") as t:
+        q = x.view(
+            2, 5, H,
+            D // H,
+        )
+    assert t._lab(8) == "Dh 8", t._lab(8)
+
+
+def test_warning_says_found_but_could_not_evaluate():
+    import warnings
+    x = torch.randn(2, 5, 32, device="meta")
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        with sl.trace(Dh="x"):  # `x` is in the code, but it is a tensor, not a size
+            q = x.view(2, 5, 4, 8)
+    msgs = [str(m.message) for m in w]
+    assert any("could not evaluate" in m and "expected an int" in m for m in msgs), msgs
+    assert not any("was not found" in m for m in msgs), msgs
+
+
 def test_expression_evaluator_is_safe():
     import ast
     assert sl._arith(ast.parse("D // H + 1", mode="eval").body, {"D": 32, "H": 4}) == 9
@@ -109,6 +153,10 @@ if __name__ == "__main__":
     test_expression_beats_a_stale_variable_of_the_same_size()
     test_name_an_expression_by_its_code()
     test_unmatched_expression_warns()
+    test_name_an_attribute_expression()
+    test_name_shape_and_true_division_expressions()
+    test_expression_in_a_multi_line_statement()
+    test_warning_says_found_but_could_not_evaluate()
     test_expression_evaluator_is_safe()
     test_no_arrow_without_inputs_and_1d_shows_both_sides()
     test_trace_names_shapes_and_labels()

@@ -42,6 +42,23 @@ def _arith(node, env):
     raise ValueError("not integer arithmetic")
 
 
+def _value(node, frame, env):
+    """Size of an expression YOU named, e.g. trace(Dh="self.d_model // self.n_heads"). Tries the safe integer
+    evaluator first; otherwise evaluates like a debugger watch expression, in the scope where the line runs."""
+    try:
+        v = _arith(node, env)
+    except (ValueError, ArithmeticError):
+        v = eval(compile(ast.Expression(body=node), "<shapelens>", "eval"), frame.f_globals, frame.f_locals)
+    if type(v) is float and v.is_integer():  # D / H -> 8.0
+        v = int(v)
+    if type(v) is bool:
+        raise TypeError("evaluated to a bool, expected an int")
+    try:
+        return operator.index(v)
+    except TypeError:
+        raise TypeError(f"evaluated to a {type(v).__name__}, expected an int") from None
+
+
 def _side(d):
     return int(8 + 12 * math.log2(max(d, 1)))  # log scale so 224 vs 3 stays drawable
 
@@ -56,14 +73,17 @@ class trace(TorchDispatchMode):
     def __init__(self, **dims):
         """Dimension labels. UPPERCASE int variables (B, T, D) and integer arithmetic in your code (D // H) are
         named automatically. Names you pass win: trace(S=197) names size 197; trace(Dh="D // H") names whatever
-        the expression `D // H` evaluates to in your code."""
+        that exact expression evaluates to in your code. Any Python expression works there, e.g.
+        trace(Dh="self.d_model // self.n_heads"); it is evaluated like a debugger watch expression."""
         super().__init__()
         self.dims = {}      # size -> [variable names]; ponytail: labels go by size, so equal sizes share names (H/W)
         self.explicit = {}  # size -> [names you passed in]
         self.exprs = {}     # size -> [source expressions like "D // H"]: fallback when nothing else names the size
         self._named = {}    # normalized expression text -> the name you gave it
         self._hit = set()   # named expressions that were found in the traced code
-        self._ast = {}      # (file, line, source) -> [(BinOp node, text)]
+        self._failed = {}   # named expressions that were found but could not be evaluated -> reason
+        self._trees = {}    # file -> (number of lines, parsed tree)
+        self._ast = {}      # (file, line) -> [(expression node, source text)] of the whole statement
         for name, v in dims.items():
             if isinstance(v, str):
                 self._named[ast.unparse(ast.parse(v, mode="eval").body)] = name
@@ -86,33 +106,60 @@ class trace(TorchDispatchMode):
             elif type(v) is int and v > 1 and k.isupper():  # B, T, D ... not loop vars like i
                 self._add(self.dims, v, k)
 
-    def _candidates(self, fr, code):
-        """Integer-looking expressions on this source line, e.g. `D // H` in `.view(B, T, H, D // H)`."""
-        key = (fr.f_code.co_filename, fr.f_lineno, code)
+    def _nodes(self, fr):
+        """(node, source text) for every expression in the WHOLE statement running at fr's line, so a call split
+        over several lines still works. For compound statements (with/for/if) only the header is used."""
+        fn, lineno = fr.f_code.co_filename, fr.f_lineno
+        key = (fn, lineno)
         if key not in self._ast:
+            nodes = []
             try:
-                tree = ast.parse(code + " pass" if code.endswith(":") else code)
-                self._ast[key] = [(n, ast.unparse(n)) for n in ast.walk(tree) if isinstance(n, ast.BinOp)
-                                  and any(isinstance(m, ast.Name) for m in ast.walk(n))]
-            except SyntaxError:  # e.g. a line from the middle of a multi-line statement
-                self._ast[key] = []
+                lines = linecache.getlines(fn)
+                if fn not in self._trees or self._trees[fn][0] != len(lines):
+                    self._trees[fn] = (len(lines), ast.parse("".join(lines)))
+                stmts = [n for n in ast.walk(self._trees[fn][1])
+                         if isinstance(n, ast.stmt) and n.lineno <= lineno <= n.end_lineno]
+                if stmts:
+                    stmt = min(stmts, key=lambda n: n.end_lineno - n.lineno)  # innermost statement
+                    for field, value in ast.iter_fields(stmt):
+                        if field in ("body", "orelse", "finalbody", "handlers"):
+                            continue
+                        for v in value if isinstance(value, list) else [value]:
+                            if isinstance(v, ast.AST):
+                                nodes += [m for m in ast.walk(v) if isinstance(m, ast.expr)]
+            except (SyntaxError, ValueError):  # whole file doesn't parse (e.g. notebook %magics): use this line only
+                line = linecache.getline(fn, lineno).strip()
+                try:
+                    nodes = [m for m in ast.walk(ast.parse(line + " pass" if line.endswith(":") else line))
+                             if isinstance(m, ast.expr)]
+                except SyntaxError:
+                    nodes = []
+            self._ast[key] = [(n, ast.unparse(n)) for n in nodes]
         return self._ast[key]
 
-    def _scan_exprs(self, fr, code):
-        cands = [(n, t) for n, t in self._candidates(fr, code) if len(t) <= 16 or t in self._named]
-        if not cands:
+    def _scan_exprs(self, fr):
+        nodes = self._nodes(fr)
+        auto = [(n, t) for n, t in nodes if isinstance(n, ast.BinOp) and len(t) <= 16 and t not in self._named
+                and any(isinstance(m, ast.Name) for m in ast.walk(n))]  # automatic: safe integer arithmetic only
+        named = [(n, t) for n, t in nodes if t in self._named]
+        if not auto and not named:
             return
         env = {**fr.f_globals, **fr.f_locals}  # evaluated in the scope where that line really runs
-        for node, text in cands:
+        for node, text in auto:
             try:
                 v = _arith(node, env)
             except (ValueError, ArithmeticError):
                 continue
-            if text in self._named:
-                self._hit.add(text)
-                self._add(self.explicit, v, self._named[text])
-            elif v > 1:
+            if v > 1:
                 self._add(self.exprs, v, text)
+        for node, text in named:
+            try:
+                v = _value(node, fr, env)
+            except Exception as e:  # you named it, so tell you why it could not be used
+                self._failed[text] = f"{type(e).__name__}: {e}"
+                continue
+            self._hit.add(text)
+            self._add(self.explicit, v, self._named[text])
 
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         try:
@@ -129,7 +176,7 @@ class trace(TorchDispatchMode):
             self._scan(fr)
             code = linecache.getline(fr.f_code.co_filename, fr.f_lineno).strip()
             line = fr.f_lineno
-            self._scan_exprs(fr, code)
+            self._scan_exprs(fr)
         else:
             code, line = "", 0
         outs = [o for o in (out if isinstance(out, (tuple, list)) else [out]) if isinstance(o, torch.Tensor)]
@@ -145,9 +192,11 @@ class trace(TorchDispatchMode):
             self._scan(fr)
         r = super().__exit__(*a)
         for text, name in self._named.items():
-            if text not in self._hit:
-                warnings.warn(f"shapelens: `{text}` was not found in the traced code, so the label '{name}' "
-                              "was not applied", stacklevel=2)
+            if text in self._hit:
+                continue
+            why = (f"found `{text}` in the traced code but could not evaluate it ({self._failed[text]})"
+                   if text in self._failed else f"`{text}` was not found in the traced code")
+            warnings.warn(f"shapelens: {why}, so the label '{name}' was not applied", stacklevel=2)
         if a[0] is not None:  # block raised: the cell's trailing `t` never runs, so show the trace now
             try:
                 from IPython.display import display

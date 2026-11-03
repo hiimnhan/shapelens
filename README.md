@@ -77,16 +77,54 @@ with sl.trace(Dh="D // H") as t:          # "Dh" names whatever `D // H` is in t
 
 ![The head dimension labelled automatically as "D // H = 8", then renamed "Dh" with sl.trace(Dh="D // H")](https://raw.githubusercontent.com/hiimnhan/shapelens/main/docs/dimension-labels.png)
 
+Copy **any** expression straight from your code. Attributes, subscripts, `/` and function calls all work, and
+so does a statement split over several lines. In a module the sizes live on `self`, so there are no `D` or `H`
+variables to pick up; name the expressions instead (others that work: `"x.shape[-1] // heads"`, `"D / H"`,
+`"len(tokens)"`):
+
+```python
+class MultiHeadScores(torch.nn.Module):
+    def __init__(self, d_model, n_heads):
+        super().__init__()
+        self.d_model, self.n_heads = d_model, n_heads
+        self.q_proj = torch.nn.Linear(d_model, d_model, device="meta")
+        self.k_proj = torch.nn.Linear(d_model, d_model, device="meta")
+
+    def forward(self, x):
+        B, T, _ = x.shape
+        q = self.q_proj(x).view(B, T, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+        k = self.k_proj(x).view(B, T, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+        return (q @ k.transpose(-2, -1)).softmax(-1)
+
+model = MultiHeadScores(d_model=32, n_heads=4)
+inp = torch.randn(2, 5, 32, device="meta")
+
+# the names on the left, the exact code on the right
+with sl.trace(D="self.d_model", H="self.n_heads", Dh="self.d_model // self.n_heads") as t:
+    scores = model(inp)
+t
+```
+
+![A multi-head module traced with named expressions: D 32, H 4 and Dh 8 come from self.d_model, self.n_heads and self.d_model // self.n_heads](https://raw.githubusercontent.com/hiimnhan/shapelens/main/docs/named-expressions.png)
+
 A size with no variable or expression of its own can be named by value: `sl.trace(S=197)`.
 
 **Priority**, highest first: names you pass, then the expression text, then variable names. The expression is
 evaluated where that line actually runs, so it beats a leftover variable of the same size (say `D = 8` from an
-earlier notebook cell), and a name you pass beats both. If the expression you name isn't found in the traced
-code (a typo), you get a warning.
+earlier notebook cell), and a name you pass beats both.
 
-**Limits.** Labels go by size, so equal sizes show every name (`H/W`), and any other axis of the same size gets
-the same label. Expressions must be integer arithmetic (`+ - * // % **`) on plain variables, on a single source
-line. They are evaluated by a small whitelist-only evaluator, never with `eval`.
+**Warnings.** If a name you pass can't be applied you are told why: either the expression was *not found* in
+the traced code (usually a typo; spacing doesn't matter), or it was found but *could not be evaluated*, with the
+reason (for example it evaluated to a tensor, not an int).
+
+**Limits**
+- Labels go by size, so equal sizes show every name (`H/W`), and any other axis of the same size gets the same
+  label.
+- Automatic expression labels (the `D // H = 8` you get without passing anything) cover only integer arithmetic
+  (`+ - * // % **`) on plain variables, evaluated by a small whitelist-only evaluator. Your code is never executed
+  for them.
+- An expression **you name** is different: it is evaluated with Python's `eval` in the scope of that line, like
+  a debugger watch expression. Use pure expressions (no function calls with side effects, such as `next(it)`).
 
 ## Tip
 
