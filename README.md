@@ -16,7 +16,9 @@ t   # last expression in the cell renders the boxes inline
 
 - **Shape errors:** if an op fails inside the block, the trace is displayed immediately with the
   failing line highlighted in red, then the original error still propagates.
-- `print(t)` gives a plain-text version of the same trace.
+- `print(t)` gives a plain-text version of the same trace, with shapes as plain tuples, for example
+  `mm: x(2, 5, 8), Wq(8, 8) -> q(2, 5, 8)`. The drawings show the same tuple under each tensor name, with the
+  dimension labels on the box edges.
 
 ![A failing matmul highlighted in red: A has last dim 32 but B has first dim 64](https://raw.githubusercontent.com/hiimnhan/shapelens/main/docs/shape-error.png)
 

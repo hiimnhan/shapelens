@@ -17,7 +17,7 @@ def test_trace_names_shapes_and_labels():
     assert rows[1][3][0][1] == (2, 4, 5, 5)  # s
     assert [t.names[i] for i, _ in rows[1][3]] == ["s"]
     assert t._lab(32) == "D 32" and t._lab(197) == "S 197"  # auto UPPERCASE ints + explicit label
-    assert "<svg" in t._repr_html_() and "s[" in t.text()
+    assert "<svg" in t._repr_html_() and "s(2, 4, 5, 5)" in t.text()
 
 
 def test_failing_op_is_recorded_and_error_propagates():
@@ -51,7 +51,8 @@ def test_expression_in_code_names_its_size():
     with sl.trace() as t:
         q = x.view(2, 5, H, D // H)
     assert t._lab(8) == "D // H = 8", t._lab(8)
-    assert "q[2, 5, H 4, D // H = 8]" in t.text(), t.text()
+    assert "q(2, 5, 4, 8)" in t.text(), t.text()  # text is plain tuples; labels live on the drawn edges
+    assert ">D // H = 8<" in t._repr_html_()
 
 
 def test_expression_beats_a_stale_variable_of_the_same_size():
@@ -135,6 +136,15 @@ def test_expression_evaluator_is_safe():
         raise AssertionError(f"should have been rejected: {bad}")
 
 
+def test_plain_shape_tuples_in_text_and_under_each_box():
+    with sl.trace() as t:
+        x = torch.ones(2, 3, device="meta")
+        y = x.sum(1)
+    assert "x(2, 3)" in t.text() and "y(2,)" in t.text(), t.text()
+    html = t._repr_html_()
+    assert ">(2, 3)<" in html and ">(2,)<" in html, "a plain tuple caption under each box"
+
+
 def test_no_arrow_without_inputs_and_1d_shows_both_sides():
     with sl.trace() as t:
         x = torch.ones(2, 3, device="meta")  # creation op: no inputs
@@ -158,6 +168,7 @@ if __name__ == "__main__":
     test_expression_in_a_multi_line_statement()
     test_warning_says_found_but_could_not_evaluate()
     test_expression_evaluator_is_safe()
+    test_plain_shape_tuples_in_text_and_under_each_box()
     test_no_arrow_without_inputs_and_1d_shows_both_sides()
     test_trace_names_shapes_and_labels()
     test_failing_op_is_recorded_and_error_propagates()

@@ -216,7 +216,7 @@ class trace(TorchDispatchMode):
         return str(d)
 
     def text(self):
-        fmt = lambda i, s: f'{self.names.get(i, "?")}[{", ".join(self._lab(d) for d in s)}]'
+        fmt = lambda i, s: f'{self.names.get(i, "?")}{tuple(s)}'  # plain shape, like torch: x(2, 5, 32)
         return "\n".join(
             f"{'✗ ' if err else ''}{code}\n    {op}: {', '.join(fmt(i, s) for i, s in ins)} -> "
             + (f"ERROR: {err}" if err else ", ".join(fmt(i, s) for i, s in outs))
@@ -271,7 +271,8 @@ class trace(TorchDispatchMode):
         ht = y0 + Hh + 8 * g + 18
         name = html.escape(self.names.get(tid, ""))
         return (f'<div style="text-align:center;margin:0 6px"><svg width="{int(wd)}" height="{int(ht)}">{body}</svg>'
-                f'<div style="font:bold 12px monospace">{name}</div></div>')
+                f'<div style="font:bold 12px monospace">{name}</div>'
+                f'<div style="font:11px monospace;opacity:.7">{html.escape(str(tuple(shape)))}</div></div>')
 
     def lines(self):
         """Collapse raw aten ops to one row per source line: named inputs -> named outputs."""
